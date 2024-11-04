@@ -1,3 +1,6 @@
+.vscode
+.pio
+
 # Prerequisites
 *.d
 
@@ -34,3 +37,4 @@
 # Secrets
 secrets.h
 *.env
+
