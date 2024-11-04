@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+
+# Secrets
+secrets.h
+*.env
