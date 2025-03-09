@@ -55,20 +55,19 @@ void MQTTTask::connectMQTT()
 
         // Publish Home Assistant discovery configuration
         const char *discovery_json = R"({
-            "name": "%s",
-            "unique_id": "%s_position",
-            "device": {
-                "identifiers": ["%s"],
-                "name": "%s",
-                "model": "SmartKnob",
-                "manufacturer": "SmartKnob"
-            },
-            "state_topic": "%s",
-            "value_template": "{{ value_json.position }}",
-            "command_topic": "%s",
-            "min": -32768,
-            "max": 32767,
-            "step": 1})";
+"name": "%s",
+"unique_id": "%s_position",
+"device": {
+    "identifiers": ["%s"],
+    "name": "%s",
+    "model": "SmartKnob",
+    "manufacturer": "SmartKnob"
+},
+"state_topic": "%s",
+"value_template": "{{ value_json.position }}",
+"command_topic": "%s",
+"min": -32768,
+"max": 32767})";
 
         snprintf(buf, sizeof(buf), discovery_json,
                  DEVICE_NAME, HOSTNAME, HOSTNAME, DEVICE_NAME,
@@ -76,9 +75,18 @@ void MQTTTask::connectMQTT()
 
         printf("HA Discovery: %s\n", buf);
         printf("HA Discovery Topic: %s\n", HA_DISCOVERY_TOPIC);
-        mqtt_client_.publish(HA_DISCOVERY_TOPIC, buf, true);
-
-
+        if (!mqtt_client_.setBufferSize(512))
+        {
+            logger_.log("Failed to set buffer size");
+        }
+        if (!mqtt_client_.publish(HA_DISCOVERY_TOPIC, buf, true))
+        {
+            logger_.log("Failed to publish HA discovery");
+        }
+        if (!mqtt_client_.setBufferSize(128))
+        {
+            logger_.log("Failed to set buffer size Back");
+        }
         mqtt_client_.subscribe(MQTT_COMMAND_TOPIC);
     }
     else
@@ -107,14 +115,23 @@ void MQTTTask::run()
 
         if (xQueueReceive(knob_state_queue_, &state, 0) == pdTRUE)
         {
-            char buf[256];
-            // Format state as JSON
-            snprintf(buf, sizeof(buf),
-                     "{\"position\":%d,\"min\":%d,\"max\":%d}",
-                     state.current_position,
-                     state.config.min_position,
-                     state.config.max_position);
-            mqtt_client_.publish(MQTT_STATE_TOPIC, buf);
+            // Only publish if values changed
+            if (state.current_position != last_published_state_.current_position ||
+                state.config.min_position != last_published_state_.config.min_position ||
+                state.config.max_position != last_published_state_.config.max_position)
+            {
+
+                char buf[256];
+                snprintf(buf, sizeof(buf),
+                         "{\"position\":%d,\"min\":%d,\"max\":%d}",
+                         state.current_position,
+                         state.config.min_position,
+                         state.config.max_position);
+                mqtt_client_.publish(MQTT_STATE_TOPIC, buf);
+
+                // Store the published state
+                last_published_state_ = state;
+            }
         }
 
         delay(1);
