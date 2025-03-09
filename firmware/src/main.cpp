@@ -7,12 +7,11 @@
 
 #if SK_DISPLAY
 static DisplayTask display_task(0);
-static DisplayTask* display_task_p = &display_task;
+static DisplayTask *display_task_p = &display_task;
 #else
-static DisplayTask* display_task_p = nullptr;
+static DisplayTask *display_task_p = nullptr;
 #endif
 static MotorTask motor_task(1);
-
 
 InterfaceTask interface_task(0, motor_task, display_task_p);
 
@@ -20,14 +19,20 @@ InterfaceTask interface_task(0, motor_task, display_task_p);
 static MQTTTask mqtt_task(0, motor_task, interface_task);
 #endif
 
-void setup() {
-  #if SK_DISPLAY
+void setup()
+{
+#if SK_DISPLAY
   display_task.setLogger(&interface_task);
   display_task.begin();
 
   // Connect display to motor_task's knob state feed
   motor_task.addListener(display_task.getKnobStateQueue());
-  #endif
+#endif
+
+#if SK_MQTT
+  // Connect mqtt to motor_task's knob state feed
+  motor_task.addListener(mqtt_task.getKnobStateQueue());
+#endif
 
   motor_task.setLogger(&interface_task);
   motor_task.begin();
@@ -38,7 +43,8 @@ void setup() {
   vTaskDelete(NULL);
 }
 
-void loop() {
+void loop()
+{
   // char buf[50];
   // static uint32_t last_stack_debug;
   // if (millis() - last_stack_debug > 1000) {

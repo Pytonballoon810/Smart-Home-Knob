@@ -16,11 +16,13 @@ class MQTTTask : public Task<MQTTTask> {
 
     public:
         MQTTTask(const uint8_t task_core, MotorTask& motor_task, Logger& logger);
+        QueueHandle_t getKnobStateQueue();
 
     protected:
         void run();
 
     private:
+        QueueHandle_t knob_state_queue_;
         MotorTask& motor_task_;
         Logger& logger_;
         WiFiClient wifi_client_;

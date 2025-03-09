@@ -19,7 +19,7 @@ const sleep = (millis: number) => {
 
 export class SmartKnob {
     private static readonly RETRY_MILLIS = 250
-    private static readonly BAUD = 921600
+    private static readonly BAUD = 250000
 
     private port: SerialPort | null
     private onMessage: MessageCallback
