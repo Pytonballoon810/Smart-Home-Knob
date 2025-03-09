@@ -13,56 +13,62 @@
 #include "task.h"
 
 #ifndef SK_FORCE_UART_STREAM
-    #define SK_FORCE_UART_STREAM 0
+#define SK_FORCE_UART_STREAM 0
 #endif
 
-class InterfaceTask : public Task<InterfaceTask>, public Logger {
+class InterfaceTask : public Task<InterfaceTask>, public Logger
+{
     friend class Task<InterfaceTask>; // Allow base Task to invoke protected run()
 
-    public:
-        InterfaceTask(const uint8_t task_core, MotorTask& motor_task, DisplayTask* display_task);
-        virtual ~InterfaceTask();
+public:
+    InterfaceTask(const uint8_t task_core, MotorTask &motor_task, DisplayTask *display_task);
+    virtual ~InterfaceTask();
 
-        void log(const char* msg) override;
-        void setConfiguration(Configuration* configuration);
+    static constexpr size_t MAX_CONFIGS = 20;
+    static PB_SmartKnobConfig configs_[MAX_CONFIGS];
+    static size_t num_configs_;
+    static bool configs_loaded_;
 
-    protected:
-        void run();
+    void log(const char *msg) override;
+    void setConfiguration(Configuration *configuration);
 
-    private:
-    #if defined(CONFIG_IDF_TARGET_ESP32S3) && !SK_FORCE_UART_STREAM
-        HWCDC stream_;
-    #else
-        UartStream stream_;
-    #endif
-        MotorTask& motor_task_;
-        DisplayTask* display_task_;
-        char buf_[128];
+protected:
+    void run();
 
-        SemaphoreHandle_t mutex_;
-        Configuration* configuration_ = nullptr; // protected by mutex_
+private:
+#if defined(CONFIG_IDF_TARGET_ESP32S3) && !SK_FORCE_UART_STREAM
+    HWCDC stream_;
+#else
+    UartStream stream_;
+#endif
+    MotorTask &motor_task_;
+    DisplayTask *display_task_;
+    char buf_[128];
 
-        PB_PersistentConfiguration configuration_value_;
-        bool configuration_loaded_ = false;
+    SemaphoreHandle_t mutex_;
+    Configuration *configuration_ = nullptr; // protected by mutex_
 
-        uint8_t strain_calibration_step_ = 0;
-        int32_t strain_reading_ = 0;
+    PB_PersistentConfiguration configuration_value_;
+    bool configuration_loaded_ = false;
 
-        SerialProtocol* current_protocol_ = nullptr;
-        bool remote_controlled_ = false;
-        int current_config_ = 0;
-        uint8_t press_count_ = 1;
+    uint8_t strain_calibration_step_ = 0;
+    int32_t strain_reading_ = 0;
 
-        PB_SmartKnobState latest_state_ = {};
-        PB_SmartKnobConfig latest_config_ = {};
+    SerialProtocol *current_protocol_ = nullptr;
+    bool remote_controlled_ = false;
+    int current_config_ = 0;
+    uint8_t press_count_ = 1;
 
-        QueueHandle_t log_queue_;
-        QueueHandle_t knob_state_queue_;
-        SerialProtocolPlaintext plaintext_protocol_;
-        SerialProtocolProtobuf proto_protocol_;
+    PB_SmartKnobState latest_state_ = {};
+    PB_SmartKnobConfig latest_config_ = {};
 
-        void changeConfig(bool next);
-        void updateHardware();
-        void publishState();
-        void applyConfig(PB_SmartKnobConfig& config, bool from_remote);
+    QueueHandle_t log_queue_;
+    QueueHandle_t knob_state_queue_;
+    SerialProtocolPlaintext plaintext_protocol_;
+    SerialProtocolProtobuf proto_protocol_;
+
+    void changeConfig(bool next);
+    void updateHardware();
+    void publishState();
+    void applyConfig(PB_SmartKnobConfig &config, bool from_remote);
 };
