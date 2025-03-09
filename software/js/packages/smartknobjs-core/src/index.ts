@@ -17,7 +17,6 @@ export {cobsEncode, cobsDecode}
 
 export class SmartKnobCore {
     private static readonly RETRY_MILLIS = 250
-    public static readonly BAUD = 921600
     public static readonly USB_DEVICE_FILTERS = [
         // CH340
         {
@@ -30,6 +29,7 @@ export class SmartKnobCore {
             usbProductId: 0x1001,
         },
     ]
+    public static readonly BAUD = 250000
 
     private onMessage: MessageCallback
     private sendBytes: SendBytes

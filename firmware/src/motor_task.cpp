@@ -102,6 +102,7 @@ void MotorTask::run() {
     uint32_t last_idle_start = 0;
     uint32_t last_publish = 0;
 
+    //calibrate();
     while (1) {
         motor.loopFOC();
 
