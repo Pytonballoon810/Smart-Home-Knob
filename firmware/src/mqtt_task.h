@@ -28,6 +28,7 @@ class MQTTTask : public Task<MQTTTask> {
         WiFiClient wifi_client_;
         PubSubClient mqtt_client_;
         int mqtt_last_connect_time_ = 0;
+        PB_SmartKnobState last_published_state_;
 
         void connectWifi();
         void connectMQTT();
