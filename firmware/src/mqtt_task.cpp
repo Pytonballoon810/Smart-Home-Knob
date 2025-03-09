@@ -56,15 +56,12 @@ void MQTTTask::handleConfigMessage(byte *payload, unsigned int length)
 {
     if (!InterfaceTask::configs_loaded_)
     {
-        // Use dynamic allocation for large JSON document
-        DynamicJsonDocument doc(16384); // Increase buffer size
+        StaticJsonDocument<4096> doc;
         DeserializationError error = deserializeJson(doc, payload, length);
 
         if (error)
         {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "JSON parse failed: %s", error.c_str());
-            logger_.log(buf);
+            logger_.log("Failed to parse config JSON");
             return;
         }
 
@@ -76,45 +73,25 @@ void MQTTTask::handleConfigMessage(byte *payload, unsigned int length)
 
         JsonArray array = doc.as<JsonArray>();
         size_t i = 0;
-        
-        // Initialize all configs with safe defaults first
-        for (i = 0; i < InterfaceTask::MAX_CONFIGS; i++) {
-            PB_SmartKnobConfig &cfg = InterfaceTask::configs_[i];
-            memset(&cfg, 0, sizeof(PB_SmartKnobConfig));
-            cfg.max_position = -1;
-            cfg.position_width_radians = 10 * PI / 180;
-            cfg.endstop_strength_unit = 1;
-            cfg.snap_point = 1.1;
-            strlcpy(cfg.text, "Default", sizeof(cfg.text));
-            cfg.led_hue = 200;
-        }
-
-        // Now process the JSON configs
-        i = 0;
-        for (JsonObject config : array) {
-            if (i >= InterfaceTask::MAX_CONFIGS) break;
+        for (JsonObject config : array)
+        {
+            if (i >= InterfaceTask::MAX_CONFIGS)
+                break;
 
             PB_SmartKnobConfig &cfg = InterfaceTask::configs_[i];
-            
-            // Safely copy text with length check
-            const char* text = config["text"] | "Unnamed";
-            strlcpy(cfg.text, text, sizeof(cfg.text)-1);
-            cfg.text[sizeof(cfg.text)-1] = '\0';
-
-            // Get numeric values with bounds checking
-            cfg.position = constrain(config["position"] | 0, -32768, 32767);
-            cfg.min_position = constrain(config["min_position"] | 0, -32768, 32767);
-            cfg.max_position = constrain(config["max_position"] | -1, -32768, 32767);
-            cfg.position_width_radians = constrain(config["width_radians"] | (10 * PI / 180), 0.0f, PI);
-            cfg.detent_strength_unit = constrain(config["detent_strength"] | 0.0f, 0.0f, 10.0f);
-            cfg.endstop_strength_unit = constrain(config["endstop_strength"] | 1.0f, 0.0f, 10.0f);
-            cfg.snap_point = constrain(config["snap_point"] | 1.1f, 0.0f, 10.0f);
-            cfg.led_hue = constrain(config["led_hue"] | 200, 0, 255);
+            cfg.position = config["position"] | 0;
+            cfg.min_position = config["min_position"] | 0;
+            cfg.max_position = config["max_position"] | -1;
+            cfg.position_width_radians = config["width_radians"] | (10 * PI / 180);
+            cfg.detent_strength_unit = config["detent_strength"] | 0;
+            cfg.endstop_strength_unit = config["endstop_strength"] | 1;
+            cfg.snap_point = config["snap_point"] | 1.1;
+            strlcpy(cfg.text, config["text"] | "Unnamed", sizeof(cfg.text));
+            cfg.led_hue = config["led_hue"] | 200;
 
             i++;
         }
-
-        InterfaceTask::num_configs_ = i > 0 ? i : 1; // Ensure at least 1 config
+        InterfaceTask::num_configs_ = i;
         InterfaceTask::configs_loaded_ = true;
 
         char buf[64];
@@ -154,7 +131,7 @@ void MQTTTask::connectMQTT()
 
         printf("HA Discovery: %s\n", buf);
         printf("HA Discovery Topic: %s\n", HA_DISCOVERY_TOPIC);
-        if (!mqtt_client_.setBufferSize(512))
+        if (!mqtt_client_.setBufferSize(4096))
         {
             logger_.log("Failed to set buffer size");
         }
