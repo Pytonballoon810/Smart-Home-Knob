@@ -180,7 +180,7 @@ void MQTTTask::connectMQTT()
     "manufacturer": "SmartKnob"
 },
 "state_topic": "%s",
-"value_template": "{{ value_json.position | string }}"
+"value_template": "{{ value_json.position | int }}"
 })";
 
         snprintf(buf, sizeof(buf), discovery_json,
