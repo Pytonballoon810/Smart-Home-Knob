@@ -62,11 +62,32 @@ void InterfaceTask::run()
 {
     stream_.begin();
 
-    // Wait for configs to be loaded from MQTT
-    while (!configs_loaded_)
+    // Initialize with one default config
+    PB_SmartKnobConfig default_config = PB_SmartKnobConfig_init_zero;
+    default_config.position = 0;
+    default_config.min_position = 0;
+    default_config.max_position = 0;
+    default_config.position_width_radians = 10 * PI / 180;
+    default_config.detent_strength_unit = 0.5;
+    default_config.endstop_strength_unit = 1;
+    default_config.snap_point = 1.1;
+    strncpy(default_config.text, "Default Config", sizeof(default_config.text) - 1);
+    strncpy(default_config.entity_id, "light.default", sizeof(default_config.text) - 1);
+    configs_[0] = default_config;
+    num_configs_ = 1;
+
+    // Wait max 5 seconds for MQTT configs
+    uint32_t start = millis();
+    while (!configs_loaded_ && (millis() - start) < 10000)
     {
         log("Waiting for configs from MQTT...");
         delay(100);
+    }
+
+    if (!configs_loaded_)
+    {
+        log("Using default config");
+        configs_loaded_ = true;
     }
 
 #if SK_LEDS

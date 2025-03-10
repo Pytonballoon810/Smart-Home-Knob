@@ -88,6 +88,7 @@ typedef struct _PB_SmartKnobConfig {
  in effect at the time of the State snapshot instead of having to infer it from the
  other config fields. */
     char text[51];
+    char entity_id[51];
     /* *
  For a "magnetic" detent mode - where not all positions should have detents - this
  specifies which positions (up to 5) have detents enabled. The knob will feel like it
@@ -151,6 +152,7 @@ typedef struct _PB_SmartKnobState {
  that a press has taken place at some point even if the State was lost during the press
  itself. Is this overkill? Probably, let's revisit in future protocol versions. */
     uint8_t press_nonce;
+    char entity_id[51];
 } PB_SmartKnobState;
 
 /* Message FROM the SmartKnob to the host */
@@ -210,7 +212,7 @@ extern "C" {
 #define PB_Ack_init_default                      {0}
 #define PB_Log_init_default                      {""}
 #define PB_SmartKnobState_init_default           {0, 0, false, PB_SmartKnobConfig_init_default, 0}
-#define PB_SmartKnobConfig_init_default          {0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, {0, 0, 0, 0, 0}, 0, 0}
+#define PB_SmartKnobConfig_init_default          {0, 0, 0, 0, 0, 0, 0, 0, 0, "", "", 0, {0, 0, 0, 0, 0}, 0, 0}
 #define PB_RequestState_init_default             {0}
 #define PB_PersistentConfiguration_init_default  {0, false, PB_MotorCalibration_init_default, false, PB_StrainCalibration_init_default}
 #define PB_MotorCalibration_init_default         {0, 0, 0, 0}
@@ -220,7 +222,7 @@ extern "C" {
 #define PB_Ack_init_zero                         {0}
 #define PB_Log_init_zero                         {""}
 #define PB_SmartKnobState_init_zero              {0, 0, false, PB_SmartKnobConfig_init_zero, 0}
-#define PB_SmartKnobConfig_init_zero             {0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, {0, 0, 0, 0, 0}, 0, 0}
+#define PB_SmartKnobConfig_init_zero             {0, 0, 0, 0, 0, 0, 0, 0, 0, "", "", 0, {0, 0, 0, 0, 0}, 0, 0}
 #define PB_RequestState_init_zero                {0}
 #define PB_PersistentConfiguration_init_zero     {0, false, PB_MotorCalibration_init_zero, false, PB_StrainCalibration_init_zero}
 #define PB_MotorCalibration_init_zero            {0, 0, 0, 0}

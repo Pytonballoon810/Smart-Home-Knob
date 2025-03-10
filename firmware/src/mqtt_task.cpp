@@ -8,8 +8,11 @@
 
 #define HA_DISCOVERY_PREFIX "homeassistant"
 #define DEVICE_NAME "SmartKnob"
-#define HA_DISCOVERY_TOPIC HA_DISCOVERY_PREFIX "/number/" HOSTNAME "/config"
-#define MQTT_STATE_TOPIC HOSTNAME "/state"
+#define HA_DISCOVERY HA_DISCOVERY_PREFIX "/sensor/" HOSTNAME
+#define HA_DISCOVERY_TOPIC_VALUE HA_DISCOVERY "/" HOSTNAME "-value/config"
+#define HA_DISCOVERY_TOPIC_ENTITY_ID HA_DISCOVERY "/" HOSTNAME "-entity_id/config"
+#define MQTT_VALUE_STATE_TOPIC HOSTNAME "/value/state"
+#define MQTT_ENTITY_ID_STATE_TOPIC HOSTNAME "/entity_id/state"
 #define MQTT_CONFIG_TOPIC HOSTNAME "/config"
 
 MQTTTask::MQTTTask(const uint8_t task_core, MotorTask &motor_task, Logger &logger) : Task("MQTT", 4096, 1, task_core),
@@ -56,47 +59,101 @@ void MQTTTask::handleConfigMessage(byte *payload, unsigned int length)
 {
     if (!InterfaceTask::configs_loaded_)
     {
-        StaticJsonDocument<4096> doc;
-        DeserializationError error = deserializeJson(doc, payload, length);
-
-        if (error)
+        // First try with heap allocation
+        DynamicJsonDocument *doc = nullptr;
+        try
         {
-            logger_.log("Failed to parse config JSON");
+            doc = new DynamicJsonDocument(16384);
+            if (!doc)
+            {
+                logger_.log("Failed to allocate JSON document");
+                return;
+            }
+
+            DeserializationError error = deserializeJson(*doc, payload, length);
+            if (error)
+            {
+                logger_.log("Failed to parse config JSON");
+                delete doc;
+                return;
+            }
+
+            if (!doc->is<JsonArray>())
+            {
+                logger_.log("Config must be an array");
+                delete doc;
+                return;
+            }
+
+            JsonArray array = doc->as<JsonArray>();
+            size_t i = 0;
+
+            // First validate all entries before modifying configs
+            bool valid = true;
+            for (JsonObject config : array)
+            {
+                if (!config.containsKey("position") ||
+                    !config.containsKey("min_position") ||
+                    !config.containsKey("max_position"))
+                {
+                    valid = false;
+                    break;
+                }
+            }
+
+            if (!valid)
+            {
+                logger_.log("Invalid config format");
+                delete doc;
+                return;
+            }
+
+            // Now safe to modify configs
+            for (JsonObject config : array)
+            {
+                if (i >= InterfaceTask::MAX_CONFIGS)
+                    break;
+
+                PB_SmartKnobConfig &cfg = InterfaceTask::configs_[i];
+                memset(&cfg, 0, sizeof(PB_SmartKnobConfig)); // Clear config first
+
+                cfg.position = config["position"] | 0;
+                cfg.min_position = config["min_position"] | 0;
+                cfg.max_position = config["max_position"] | -1;
+                cfg.position_width_radians = config["width_radians"] | (10 * PI / 180);
+                cfg.detent_strength_unit = config["detent_strength"] | 0;
+                cfg.endstop_strength_unit = config["endstop_strength"] | 1;
+                cfg.snap_point = config["snap_point"] | 1.1;
+
+                const char *text = config["text"] | "Unnamed";
+                strncpy(cfg.text, text, sizeof(cfg.text) - 1);
+                cfg.text[sizeof(cfg.text) - 1] = '\0';
+
+                cfg.led_hue = config["led_hue"] | 200;
+
+                const char *entity_id = config["entity_id"] | "";
+                strncpy(cfg.entity_id, entity_id, sizeof(cfg.entity_id) - 1);
+                cfg.entity_id[sizeof(cfg.entity_id) - 1] = '\0';
+
+                i++;
+            }
+
+            InterfaceTask::num_configs_ = i > 0 ? i : 1;
+            InterfaceTask::configs_loaded_ = true;
+
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Loaded %u configs from MQTT", i);
+            logger_.log(buf);
+
+            delete doc;
+        }
+        catch (...)
+        {
+            logger_.log("Exception during config parsing");
+            if (doc)
+                delete doc;
             return;
         }
-
-        if (!doc.is<JsonArray>())
-        {
-            logger_.log("Config must be an array");
-            return;
-        }
-
-        JsonArray array = doc.as<JsonArray>();
-        size_t i = 0;
-        for (JsonObject config : array)
-        {
-            if (i >= InterfaceTask::MAX_CONFIGS)
-                break;
-
-            PB_SmartKnobConfig &cfg = InterfaceTask::configs_[i];
-            cfg.position = config["position"] | 0;
-            cfg.min_position = config["min_position"] | 0;
-            cfg.max_position = config["max_position"] | -1;
-            cfg.position_width_radians = config["width_radians"] | (10 * PI / 180);
-            cfg.detent_strength_unit = config["detent_strength"] | 0;
-            cfg.endstop_strength_unit = config["endstop_strength"] | 1;
-            cfg.snap_point = config["snap_point"] | 1.1;
-            strlcpy(cfg.text, config["text"] | "Unnamed", sizeof(cfg.text));
-            cfg.led_hue = config["led_hue"] | 200;
-
-            i++;
-        }
-        InterfaceTask::num_configs_ = i;
-        InterfaceTask::configs_loaded_ = true;
-
-        char buf[64];
-        snprintf(buf, sizeof(buf), "Loaded %u configs from MQTT", i);
-        logger_.log(buf);
     }
 }
 
@@ -109,10 +166,13 @@ void MQTTTask::connectMQTT()
     {
         logger_.log("MQTT connected");
 
+        // Request configs immediately after connection
+        mqtt_client_.publish(MQTT_CONFIG_TOPIC "/get", "1", false);
+
         // Publish Home Assistant discovery configuration
         const char *discovery_json = R"({
-"name": "%s",
-"unique_id": "%s_position",
+"name": "position",
+"unique_id": "position",
 "device": {
     "identifiers": ["%s"],
     "name": "%s",
@@ -120,22 +180,44 @@ void MQTTTask::connectMQTT()
     "manufacturer": "SmartKnob"
 },
 "state_topic": "%s",
-"value_template": "{{ value_json.position }}",
-"command_topic": "%s",
-"min": -32768,
-"max": 32767})";
+"value_template": "{{ value_json.position | string }}"
+})";
 
         snprintf(buf, sizeof(buf), discovery_json,
-                 DEVICE_NAME, HOSTNAME, HOSTNAME, DEVICE_NAME,
-                 MQTT_STATE_TOPIC, MQTT_COMMAND_TOPIC);
+                DEVICE_NAME, DEVICE_NAME,
+                MQTT_VALUE_STATE_TOPIC);
 
         printf("HA Discovery: %s\n", buf);
-        printf("HA Discovery Topic: %s\n", HA_DISCOVERY_TOPIC);
+        printf("HA Discovery Topic: %s\n", HA_DISCOVERY_TOPIC_VALUE);
         if (!mqtt_client_.setBufferSize(4096))
         {
             logger_.log("Failed to set buffer size");
         }
-        if (!mqtt_client_.publish(HA_DISCOVERY_TOPIC, buf, true))
+        if (!mqtt_client_.publish(HA_DISCOVERY_TOPIC_VALUE, buf, true))
+        {
+            logger_.log("Failed to publish HA discovery");
+        }
+        discovery_json = R"({
+"name": "entity_id",
+"unique_id": "entity_id",
+"device": {
+    "identifiers": ["%s"]
+},
+"state_topic": "%s",
+"value_template": "{{ value_json.entity_id | string }}"
+})";
+
+        snprintf(buf, sizeof(buf), discovery_json,
+                DEVICE_NAME,
+                MQTT_ENTITY_ID_STATE_TOPIC);
+
+        printf("HA Discovery: %s\n", buf);
+        printf("HA Discovery Topic: %s\n", HA_DISCOVERY_TOPIC_ENTITY_ID);
+        if (!mqtt_client_.setBufferSize(4096))
+        {
+            logger_.log("Failed to set buffer size");
+        }
+        if (!mqtt_client_.publish(HA_DISCOVERY_TOPIC_ENTITY_ID, buf, true))
         {
             logger_.log("Failed to publish HA discovery");
         }
@@ -168,22 +250,26 @@ void MQTTTask::run()
 
         if (xQueueReceive(knob_state_queue_, &state, 0) == pdTRUE)
         {
-            // Only publish if values changed
-            if (state.current_position != last_published_state_.current_position ||
-                state.config.min_position != last_published_state_.config.min_position ||
-                state.config.max_position != last_published_state_.config.max_position)
+            // Only publish if values changed and 50ms have passed
+            if ((now - mqtt_last_publish_time_ >= 100) &&
+                (state.current_position != last_published_state_.current_position ||
+                 state.config.min_position != last_published_state_.config.min_position ||
+                 state.config.max_position != last_published_state_.config.max_position))
             {
-
                 char buf[256];
                 snprintf(buf, sizeof(buf),
-                         "{\"position\":%d,\"min\":%d,\"max\":%d}",
-                         state.current_position,
-                         state.config.min_position,
-                         state.config.max_position);
-                mqtt_client_.publish(MQTT_STATE_TOPIC, buf);
+                         "{\"position\":\"%d\"}",
+                         state.current_position);
+                mqtt_client_.publish(MQTT_VALUE_STATE_TOPIC, buf);
 
-                // Store the published state
+                snprintf(buf, sizeof(buf),
+                         "{\"entity_id\":\"%s\"}",
+                         state.config.entity_id);
+                mqtt_client_.publish(MQTT_ENTITY_ID_STATE_TOPIC, buf);
+
+                // Store the published state and time
                 last_published_state_ = state;
+                mqtt_last_publish_time_ = now;
             }
         }
 

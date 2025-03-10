@@ -28,6 +28,7 @@ private:
     WiFiClient wifi_client_;
     PubSubClient mqtt_client_;
     int mqtt_last_connect_time_ = 0;
+    long mqtt_last_publish_time_ = 0; // Add this line
     PB_SmartKnobState last_published_state_;
 
     void connectWifi();
