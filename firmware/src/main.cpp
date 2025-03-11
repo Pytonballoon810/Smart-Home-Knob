@@ -5,6 +5,7 @@
 #include "interface_task.h"
 #include "motor_task.h"
 #include "mqtt_task.h"
+#include "hass_client.h"
 
 Configuration config;
 
@@ -20,6 +21,7 @@ InterfaceTask interface_task(0, motor_task, display_task_p);
 
 #if SK_MQTT
 static MQTTTask mqtt_task(0, motor_task, interface_task);
+static HassClient hass_client(1, interface_task, interface_task);
 #endif
 
 void setup()
@@ -35,6 +37,7 @@ void setup()
 #if SK_MQTT
   // Connect mqtt to motor_task's knob state feed
   motor_task.addListener(mqtt_task.getKnobStateQueue());
+  motor_task.addListener(hass_client.getKnobStateQueue());
 #endif
   interface_task.begin();
 
@@ -46,6 +49,9 @@ void setup()
   motor_task.setLogger(&interface_task);
   motor_task.begin();
   mqtt_task.begin();
+
+  // Initialize HassClient after MQTT/WiFi is ready
+  hass_client.begin();
 
   // Free up the Arduino loop task
   vTaskDelete(NULL);

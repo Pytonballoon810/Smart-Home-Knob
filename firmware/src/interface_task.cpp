@@ -231,13 +231,6 @@ void InterfaceTask::changeConfig(bool next)
 
     PB_SmartKnobConfig &config = configs_[current_config_];
 
-    // Fetch current value from Home Assistant
-    if (strlen(config.entity_id) > 0)
-    {
-        int currentValue = HassClient::getStateValue(config.entity_id, config.max_position);
-        config.position = currentValue;
-    }
-
     snprintf(buf_, sizeof(buf_), "Changing config to %d -- %s", current_config_, config.text);
     log(buf_);
     applyConfig(config, false);

@@ -4,12 +4,28 @@
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
 #include "secrets.h"
+#include "interface_task.h"
+#include "task.h"
 
-class HassClient
+class HassClient : public Task<HassClient>
 {
+    friend class Task<HassClient>; // Allow base Task to invoke protected run()
+
 public:
-    static int getStateValue(const char *entityId, int maxValue);
+    HassClient(const uint8_t task_core, InterfaceTask &interface, Logger &logger);
+    int getStateValue(const char *entityId, int maxValue);
+    void setStateValue(const char *entityId, int value, int maxValue);
+    QueueHandle_t getKnobStateQueue();
+
+protected:
+    void run();
 
 private:
+    Logger &logger_;
     static WiFiClient client;
+    InterfaceTask &interface_;
+    QueueHandle_t knob_state_queue_;
+
+    long last_publish_time_ = 0;
+    PB_SmartKnobState last_published_state_;
 };
