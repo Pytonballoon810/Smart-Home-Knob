@@ -17,11 +17,12 @@ static DisplayTask *display_task_p = nullptr;
 #endif
 static MotorTask motor_task(1, config);
 
-InterfaceTask interface_task(0, motor_task, display_task_p);
+static HassClient hass_client(1);
+
+InterfaceTask interface_task(0, motor_task, display_task_p, hass_client);
 
 #if SK_MQTT
 static MQTTTask mqtt_task(0, motor_task, interface_task);
-static HassClient hass_client(1, interface_task, interface_task);
 #endif
 
 void setup()
@@ -40,6 +41,8 @@ void setup()
   motor_task.addListener(hass_client.getKnobStateQueue());
 #endif
   interface_task.begin();
+
+  hass_client.setInterfaceTask(&interface_task); // Interface nach Erstellung setzen
 
   config.setLogger(&interface_task);
   config.loadFromDisk();

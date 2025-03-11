@@ -16,12 +16,15 @@
 #define SK_FORCE_UART_STREAM 0
 #endif
 
+// Forward declaration
+class HassClient;
+
 class InterfaceTask : public Task<InterfaceTask>, public Logger
 {
     friend class Task<InterfaceTask>; // Allow base Task to invoke protected run()
 
 public:
-    InterfaceTask(const uint8_t task_core, MotorTask &motor_task, DisplayTask *display_task);
+    InterfaceTask(const uint8_t task_core, MotorTask &motor_task, DisplayTask *display_task, HassClient &hass_client);
     virtual ~InterfaceTask();
 
     static constexpr size_t MAX_CONFIGS = 20;
@@ -43,6 +46,7 @@ private:
 #endif
     MotorTask &motor_task_;
     DisplayTask *display_task_;
+    HassClient& hass_client_;
     char buf_[128];
 
     SemaphoreHandle_t mutex_;

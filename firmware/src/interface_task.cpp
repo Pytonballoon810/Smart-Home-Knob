@@ -31,14 +31,16 @@ PB_SmartKnobConfig InterfaceTask::configs_[InterfaceTask::MAX_CONFIGS];
 size_t InterfaceTask::num_configs_ = 0;
 bool InterfaceTask::configs_loaded_ = false;
 
-InterfaceTask::InterfaceTask(const uint8_t task_core, MotorTask &motor_task, DisplayTask *display_task) : Task("Interface", 3400, 1, task_core),
-                                                                                                          stream_(),
-                                                                                                          motor_task_(motor_task),
-                                                                                                          display_task_(display_task),
-                                                                                                          plaintext_protocol_(stream_, [this]()
-                                                                                                                              { motor_task_.runCalibration(); }),
-                                                                                                          proto_protocol_(stream_, [this](PB_SmartKnobConfig &config)
-                                                                                                                          { applyConfig(config, true); })
+InterfaceTask::InterfaceTask(const uint8_t task_core, MotorTask &motor_task, DisplayTask *display_task, HassClient &hass_client)
+    : Task("Interface", 3400, 1, task_core),
+      stream_(),
+      motor_task_(motor_task),
+      display_task_(display_task),
+      hass_client_(hass_client),
+      plaintext_protocol_(stream_, [this]()
+                          { motor_task_.runCalibration(); }),
+      proto_protocol_(stream_, [this](PB_SmartKnobConfig &config)
+                      { applyConfig(config, true); })
 {
 #if SK_DISPLAY
     assert(display_task != nullptr);
@@ -230,6 +232,13 @@ void InterfaceTask::changeConfig(bool next)
     }
 
     PB_SmartKnobConfig &config = configs_[current_config_];
+    // Fetch current value from Home Assistant
+    config.position = 0;
+    if (strlen(config.entity_id) > 0)
+    {
+        int currentValue = hass_client_.getStateValue(config.entity_id, config.max_position);
+        config.position = currentValue;
+    }
 
     snprintf(buf_, sizeof(buf_), "Changing config to %d -- %s", current_config_, config.text);
     log(buf_);

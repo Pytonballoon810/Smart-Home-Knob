@@ -1,15 +1,20 @@
 #include "hass_client.h"
+#include "interface_task.h" // Include hier statt im Header
 
 WiFiClient HassClient::client;
 
-HassClient::HassClient(const uint8_t task_core, InterfaceTask &interface, Logger &logger)
-    : Task("HassClient", 4096, 1, task_core),
-        logger_(logger),
-        interface_(interface)
+HassClient::HassClient(const uint8_t task_core)
+    : Task("HassClient", 4096, 0, task_core)
 {
     knob_state_queue_ = xQueueCreate(1, sizeof(PB_SmartKnobState));
     assert(knob_state_queue_ != NULL);
     client.setTimeout(5000);
+}
+
+void HassClient::setInterfaceTask(InterfaceTask *interface)
+{
+    logger_ = interface;
+    interface_ = interface;
 }
 
 int HassClient::getStateValue(const char *entityId, int maxValue)
@@ -49,18 +54,26 @@ int HassClient::getStateValue(const char *entityId, int maxValue)
                     value = maxValue;
                 }
             }
-            interface_.log("Successfully got state from Home Assistant");
+            else if (doc["state"] == "off")
+            {
+                value = 0;
+            }
+            else
+            {
+                log("Invalid state value");
+            }
+            log("Successfully got state from Home Assistant");
         }
         else
         {
-            interface_.log("Failed to parse Home Assistant response");
+            log("Failed to parse Home Assistant response");
         }
     }
     else
     {
         char buf[64];
         snprintf(buf, sizeof(buf), "HTTP request failed with code: %d", httpCode);
-        interface_.log(buf);
+        log(buf);
     }
 
     http.end();
@@ -101,7 +114,7 @@ void HassClient::setStateValue(const char *entityId, int value, int maxValue)
     {
         char buf[64];
         snprintf(buf, sizeof(buf), "State update failed with code: %d", httpCode);
-        interface_.log(buf);
+        log(buf);
     }
 
     http.end();
@@ -117,22 +130,17 @@ void HassClient::run()
         {
 
             // Only publish if values changed and 50ms have passed
-            if ((now - last_publish_time_ >= 100) &&
+            if ((now - last_publish_time_ >= 200) &&
                 (state.current_position != last_published_state_.current_position ||
                  state.config.min_position != last_published_state_.config.min_position ||
                  state.config.max_position != last_published_state_.config.max_position))
             {
-                
+
                 setStateValue(state.config.entity_id, state.current_position, state.config.max_position);
                 // Store the published state and time
                 last_published_state_ = state;
                 last_publish_time_ = now;
             }
-
-
-            
-                
-            
         }
         delay(1);
     }
@@ -141,4 +149,12 @@ void HassClient::run()
 QueueHandle_t HassClient::getKnobStateQueue()
 {
     return knob_state_queue_;
+}
+
+void HassClient::log(const char *msg)
+{
+    if (logger_ != nullptr)
+    {
+        logger_->log(msg);
+    }
 }
