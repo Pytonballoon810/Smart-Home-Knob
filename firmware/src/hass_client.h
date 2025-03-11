@@ -36,4 +36,5 @@ private:
     PB_SmartKnobState last_published_state_;
 
     void log(const char *msg); // Private log Methode
+    bool isWiFiReady();
 };

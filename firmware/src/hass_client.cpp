@@ -17,8 +17,23 @@ void HassClient::setInterfaceTask(InterfaceTask *interface)
     interface_ = interface;
 }
 
+bool HassClient::isWiFiReady()
+{
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        log("WiFi not connected");
+        return false;
+    }
+    return true;
+}
+
 int HassClient::getStateValue(const char *entityId, int maxValue)
 {
+    if (!isWiFiReady())
+    {
+        return 0;
+    }
+
     HTTPClient http;
     String url = String(HASS_URL) + "/api/states/" + entityId;
 
@@ -82,8 +97,13 @@ int HassClient::getStateValue(const char *entityId, int maxValue)
 
 void HassClient::setStateValue(const char *entityId, int value, int maxValue)
 {
+    if (!isWiFiReady())
+    {
+        return;
+    }
+
     HTTPClient http;
-    String url = String(HASS_URL) + "/api/services/light/turn_";
+    String url = String(HASS_URL) + "/api/services/homeassistant/turn_";
 
     if (value == 0)
     {

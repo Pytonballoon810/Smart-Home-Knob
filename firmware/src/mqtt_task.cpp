@@ -138,6 +138,14 @@ void MQTTTask::handleConfigMessage(byte *payload, unsigned int length)
                 cfg.endstop_strength_unit = config["endstop_strength"] | 1;
                 cfg.snap_point = config["snap_point"] | 1.1;
 
+                JsonArray positions = config["detent_positions"].as<JsonArray>();
+                cfg.detent_positions_count = positions.size();
+                for (size_t j = 0; j < positions.size(); j++) {
+                    cfg.detent_positions[j] = positions[j];
+                }
+
+                cfg.snap_point_bias = config["snap_point_bias"] | 0;
+
                 const char *text = config["text"] | "Unnamed";
                 strncpy(cfg.text, text, sizeof(cfg.text) - 1);
                 cfg.text[sizeof(cfg.text) - 1] = '\0';
@@ -182,7 +190,7 @@ void MQTTTask::connectMQTT()
         // Request configs immediately after connection
         mqtt_client_.publish(MQTT_CONFIG_TOPIC "/get", "1", false);
 
-        if (!mqtt_client_.setBufferSize(1024))
+        if (!mqtt_client_.setBufferSize(4096))
         {
             logger_.log("Failed to set buffer size");
         }
@@ -298,6 +306,10 @@ void MQTTTask::run()
     PB_SmartKnobState state;
     while (1)
     {
+        if(WiFi.status() != WL_CONNECTED)
+        {
+            ESP.restart();
+        }
         long now = millis();
         if (!mqtt_client_.connected() && (now - mqtt_last_connect_time_) > 5000)
         {
