@@ -9,11 +9,9 @@
 #define HA_DISCOVERY_PREFIX "homeassistant"
 #define DEVICE_NAME "SmartKnob"
 #define HA_DISCOVERY HA_DISCOVERY_PREFIX "/sensor/" HOSTNAME
-#define HA_DISCOVERY_TOPIC_VALUE HA_DISCOVERY "/" HOSTNAME "-value/config"
-#define HA_DISCOVERY_TOPIC_ENTITY_ID HA_DISCOVERY "/" HOSTNAME "-entity_id/config"
-#define MQTT_VALUE_STATE_TOPIC HOSTNAME "/value/state"
-#define MQTT_ENTITY_ID_STATE_TOPIC HOSTNAME "/entity_id/state"
+#define MQTT_STATE_TOPIC HOSTNAME "/state"
 #define MQTT_CONFIG_TOPIC HOSTNAME "/config"
+#define MQTT_COMMAND_TOPIC HOSTNAME "/command"
 
 MQTTTask::MQTTTask(const uint8_t task_core, MotorTask &motor_task, Logger &logger) : Task("MQTT", 4096, 1, task_core),
                                                                                      motor_task_(motor_task),
@@ -53,6 +51,21 @@ void MQTTTask::mqttCallback(char *topic, byte *payload, unsigned int length)
     {
         handleConfigMessage(payload, length);
     }
+    else if (strstr(topic, "/command") != NULL)
+    {
+        // Create null-terminated string from payload
+        char command[32];
+        size_t command_len = min(length, sizeof(command) - 1);
+        memcpy(command, payload, command_len);
+        command[command_len] = '\0';
+
+        if (strcmp(command, "reboot") == 0)
+        {
+            logger_.log("Rebooting via MQTT command");
+            delay(100); // Give some time for MQTT message to be sent
+            ESP.restart();
+        }
+    }
 }
 
 void MQTTTask::handleConfigMessage(byte *payload, unsigned int length)
@@ -63,7 +76,7 @@ void MQTTTask::handleConfigMessage(byte *payload, unsigned int length)
         DynamicJsonDocument *doc = nullptr;
         try
         {
-            doc = new DynamicJsonDocument(16384);
+            doc = new DynamicJsonDocument(4096);
             if (!doc)
             {
                 logger_.log("Failed to allocate JSON document");
@@ -169,6 +182,10 @@ void MQTTTask::connectMQTT()
         // Request configs immediately after connection
         mqtt_client_.publish(MQTT_CONFIG_TOPIC "/get", "1", false);
 
+        if (!mqtt_client_.setBufferSize(1024))
+        {
+            logger_.log("Failed to set buffer size");
+        }
         // Publish Home Assistant discovery configuration
         const char *discovery_json = R"({
 "name": "position",
@@ -184,16 +201,9 @@ void MQTTTask::connectMQTT()
 })";
 
         snprintf(buf, sizeof(buf), discovery_json,
-                DEVICE_NAME, DEVICE_NAME,
-                MQTT_VALUE_STATE_TOPIC);
-
-        printf("HA Discovery: %s\n", buf);
-        printf("HA Discovery Topic: %s\n", HA_DISCOVERY_TOPIC_VALUE);
-        if (!mqtt_client_.setBufferSize(4096))
-        {
-            logger_.log("Failed to set buffer size");
-        }
-        if (!mqtt_client_.publish(HA_DISCOVERY_TOPIC_VALUE, buf, true))
+                 DEVICE_NAME, DEVICE_NAME,
+                 MQTT_STATE_TOPIC);
+        if (!mqtt_client_.publish(HA_DISCOVERY "/" HOSTNAME "-value/config", buf, true))
         {
             logger_.log("Failed to publish HA discovery");
         }
@@ -208,19 +218,68 @@ void MQTTTask::connectMQTT()
 })";
 
         snprintf(buf, sizeof(buf), discovery_json,
-                DEVICE_NAME,
-                MQTT_ENTITY_ID_STATE_TOPIC);
+                 DEVICE_NAME,
+                 MQTT_STATE_TOPIC);
 
-        printf("HA Discovery: %s\n", buf);
-        printf("HA Discovery Topic: %s\n", HA_DISCOVERY_TOPIC_ENTITY_ID);
-        if (!mqtt_client_.setBufferSize(4096))
-        {
-            logger_.log("Failed to set buffer size");
-        }
-        if (!mqtt_client_.publish(HA_DISCOVERY_TOPIC_ENTITY_ID, buf, true))
+        if (!mqtt_client_.publish(HA_DISCOVERY "/" HOSTNAME "-entity_id/config", buf, true))
         {
             logger_.log("Failed to publish HA discovery");
         }
+        discovery_json = R"({
+"name": "min_position",
+"unique_id": "min_position",
+"device": {
+    "identifiers": ["%s"]
+},
+"state_topic": "%s",
+"value_template": "{{ value_json.min_position | string }}"
+})";
+        snprintf(buf, sizeof(buf), discovery_json,
+                 DEVICE_NAME,
+                 MQTT_STATE_TOPIC);
+
+        if (!mqtt_client_.publish(HA_DISCOVERY "/" HOSTNAME "-min_position/config", buf, true))
+        {
+            logger_.log("Failed to publish HA discovery");
+        }
+        discovery_json = R"({
+"name": "max_position",
+"unique_id": "max_position",
+"device": {
+    "identifiers": ["%s"]
+},
+"state_topic": "%s",
+"value_template": "{{ value_json.max_position | string }}"
+})";
+        snprintf(buf, sizeof(buf), discovery_json,
+                 DEVICE_NAME,
+                 MQTT_STATE_TOPIC);
+
+        if (!mqtt_client_.publish(HA_DISCOVERY "/" HOSTNAME "-max_position/config", buf, true))
+        {
+            logger_.log("Failed to publish HA discovery");
+        }
+
+        // Add reboot button discovery
+        discovery_json = R"({
+"name": "Reboot",
+"unique_id": "reboot",
+"device": {
+    "identifiers": ["%s"]
+},
+"command_topic": "%s",
+"payload_press": "reboot",
+"device_class": "restart"
+})";
+        snprintf(buf, sizeof(buf), discovery_json,
+                 DEVICE_NAME,
+                 MQTT_COMMAND_TOPIC);
+
+        if (!mqtt_client_.publish(HA_DISCOVERY_PREFIX "/button/" HOSTNAME "-reboot/config", buf, true))
+        {
+            logger_.log("Failed to publish HA reboot button discovery");
+        }
+
         mqtt_client_.subscribe(MQTT_CONFIG_TOPIC);
         mqtt_client_.subscribe(MQTT_COMMAND_TOPIC);
     }
@@ -258,14 +317,10 @@ void MQTTTask::run()
             {
                 char buf[256];
                 snprintf(buf, sizeof(buf),
-                         "{\"position\":\"%d\"}",
-                         state.current_position);
-                mqtt_client_.publish(MQTT_VALUE_STATE_TOPIC, buf);
+                         "{\"position\":\"%d\",\"entity_id\":\"%s\",\"min_position\":\"%d\",\"max_position\":\"%d\"}",
+                         state.current_position, state.config.entity_id, state.config.min_position, state.config.max_position);
 
-                snprintf(buf, sizeof(buf),
-                         "{\"entity_id\":\"%s\"}",
-                         state.config.entity_id);
-                mqtt_client_.publish(MQTT_ENTITY_ID_STATE_TOPIC, buf);
+                mqtt_client_.publish(MQTT_STATE_TOPIC, buf);
 
                 // Store the published state and time
                 last_published_state_ = state;

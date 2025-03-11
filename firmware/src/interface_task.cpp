@@ -13,6 +13,7 @@
 #include "interface_task.h"
 #include "semaphore_guard.h"
 #include "util.h"
+#include "hass_client.h"
 
 #if SK_LEDS
 CRGB leds[NUM_LEDS];
@@ -228,9 +229,18 @@ void InterfaceTask::changeConfig(bool next)
         }
     }
 
-    snprintf(buf_, sizeof(buf_), "Changing config to %d -- %s", current_config_, configs_[current_config_].text);
+    PB_SmartKnobConfig &config = configs_[current_config_];
+
+    // Fetch current value from Home Assistant
+    if (strlen(config.entity_id) > 0)
+    {
+        int currentValue = HassClient::getStateValue(config.entity_id, config.max_position);
+        config.position = currentValue;
+    }
+
+    snprintf(buf_, sizeof(buf_), "Changing config to %d -- %s", current_config_, config.text);
     log(buf_);
-    applyConfig(configs_[current_config_], false);
+    applyConfig(config, false);
 }
 
 void InterfaceTask::updateHardware()
