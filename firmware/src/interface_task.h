@@ -46,7 +46,7 @@ private:
 #endif
     MotorTask &motor_task_;
     DisplayTask *display_task_;
-    HassClient& hass_client_;
+    HassClient &hass_client_;
     char buf_[128];
 
     SemaphoreHandle_t mutex_;
@@ -70,6 +70,12 @@ private:
     QueueHandle_t knob_state_queue_;
     SerialProtocolPlaintext plaintext_protocol_;
     SerialProtocolProtobuf proto_protocol_;
+
+#if SK_ALS
+    bool als_initialized_ = false;
+    uint32_t als_retry_time_ = 0;
+    static constexpr uint32_t ALS_RETRY_INTERVAL_MS = 5000;
+#endif
 
     void changeConfig(bool next);
     void updateHardware();

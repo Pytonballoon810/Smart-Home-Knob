@@ -322,7 +322,7 @@ void MQTTTask::run()
         if (xQueueReceive(knob_state_queue_, &state, 0) == pdTRUE)
         {
             // Only publish if values changed and 50ms have passed
-            if ((now - mqtt_last_publish_time_ >= 100) &&
+            if ((now - mqtt_last_publish_time_ >= 200) &&
                 (state.current_position != last_published_state_.current_position ||
                  state.config.min_position != last_published_state_.config.min_position ||
                  state.config.max_position != last_published_state_.config.max_position))
@@ -340,7 +340,7 @@ void MQTTTask::run()
             }
         }
 
-        delay(1);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 

@@ -1,5 +1,6 @@
 #include "hass_client.h"
 #include "interface_task.h" // Include hier statt im Header
+#include <ArduinoJson.h>    // Explicit include for JsonDocument
 
 WiFiClient HassClient::client;
 
@@ -8,7 +9,7 @@ HassClient::HassClient(const uint8_t task_core)
 {
     knob_state_queue_ = xQueueCreate(1, sizeof(PB_SmartKnobState));
     assert(knob_state_queue_ != NULL);
-    client.setTimeout(5000);
+    client.setTimeout(TIMEOUT);
 }
 
 void HassClient::setInterfaceTask(InterfaceTask *interface)
@@ -44,38 +45,53 @@ int HassClient::getStateValue(const char *entityId, int maxValue)
     int httpCode = http.GET();
     if (httpCode == HTTP_CODE_OK)
     {
-        // Use streaming parser to reduce memory usage
-        StaticJsonDocument<128> filter;
+        if (!client.connected())
+        {
+            log("Client connection lost");
+            http.end();
+            return 0;
+        }
+
+        WiFiClient *stream = http.getStreamPtr();
+        if (!stream)
+        {
+            log("Failed to get stream pointer");
+            http.end();
+            return 0;
+        }
+
+        JsonDocument filter;
         filter["state"] = true;
         filter["attributes"]["brightness"] = true;
 
-        StaticJsonDocument<128> doc;
-        DeserializationError error = deserializeJson(doc, http.getString(), DeserializationOption::Filter(filter));
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
 
         if (!error)
         {
-            if (maxValue == 1)
+            const char *state = doc["state"];
+            if (state != nullptr)
             {
-                value = (doc["state"] == "on") ? 1 : 0;
-            }
-            else if (doc["state"] == "on")
-            {
-                if (doc["attributes"]["brightness"].is<int>())
+                if (maxValue == 1)
                 {
-                    value = map(doc["attributes"]["brightness"].as<int>(), 0, 255, 0, maxValue);
+                    value = (strcmp(state, "on") == 0) ? 1 : 0;
                 }
-                else
+                else if (strcmp(state, "on") == 0)
                 {
-                    value = maxValue;
+                    JsonVariant brightness = doc["attributes"]["brightness"];
+                    if (brightness.is<int>())
+                    {
+                        value = map(brightness.as<int>(), 0, 255, 0, maxValue);
+                    }
+                    else
+                    {
+                        value = maxValue;
+                    }
                 }
-            }
-            else if (doc["state"] == "off")
-            {
-                value = 0;
-            }
-            else
-            {
-                log("Invalid state value");
+                else if (strcmp(state, "off") == 0)
+                {
+                    value = 0;
+                }
             }
             log("Successfully got state from Home Assistant");
         }
@@ -118,7 +134,7 @@ void HassClient::setStateValue(const char *entityId, int value, int maxValue)
     http.addHeader("Authorization", "Bearer " + String(HASS_TOKEN));
     http.addHeader("Content-Type", "application/json");
 
-    StaticJsonDocument<200> doc;
+    JsonDocument doc; // Changed from StaticJsonDocument
     doc["entity_id"] = entityId;
 
     if (value > 0 && maxValue > 1)
@@ -146,7 +162,7 @@ void HassClient::run()
     {
         long now = millis();
         PB_SmartKnobState state;
-        if (xQueueReceive(knob_state_queue_, &state, pdMS_TO_TICKS(100)) == pdTRUE)
+        if (xQueueReceive(knob_state_queue_, &state, 0) == pdTRUE)
         {
 
             // Only publish if values changed and 50ms have passed
@@ -162,7 +178,7 @@ void HassClient::run()
                 last_publish_time_ = now;
             }
         }
-        delay(1);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 

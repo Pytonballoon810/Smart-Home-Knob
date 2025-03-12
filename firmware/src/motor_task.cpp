@@ -139,13 +139,10 @@ void MotorTask::run() {
 
                     // Change haptic input mode
                     bool position_updated = false;
-                    if (new_config.position != config.position
-                            || new_config.sub_position_unit != config.sub_position_unit
-                            || new_config.position_nonce != config.position_nonce) {
-                        log("applying position change");
-                        current_position = new_config.position;
-                        position_updated = true;
-                    }
+                    log("applying position change");
+                    current_position = new_config.position;
+                    position_updated = true;
+                    
 
                     if (new_config.min_position <= new_config.max_position) {
                         // Only check bounds if min/max indicate bounds are active (min >= max)

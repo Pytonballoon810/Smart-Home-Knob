@@ -100,21 +100,22 @@ void InterfaceTask::run()
 #if SK_ALS && PIN_SDA >= 0 && PIN_SCL >= 0
     Wire.begin(PIN_SDA, PIN_SCL);
     Wire.setClock(400000);
-#endif
-#if SK_STRAIN
-    scale.begin(PIN_STRAIN_DO, PIN_STRAIN_SCK);
-#endif
 
-#if SK_ALS
     if (veml.begin())
     {
         veml.setGain(VEML7700_GAIN_2);
         veml.setIntegrationTime(VEML7700_IT_400MS);
+        als_initialized_ = true;
+        log("ALS sensor initialized successfully");
     }
     else
     {
-        log("ALS sensor not found!");
+        log("ALS sensor initialization failed - will retry later");
+        als_retry_time_ = millis() + ALS_RETRY_INTERVAL_MS;
     }
+#endif
+#if SK_STRAIN
+    scale.begin(PIN_STRAIN_DO, PIN_STRAIN_SCK);
 #endif
 
     applyConfig(configs_[0], false);
@@ -240,7 +241,7 @@ void InterfaceTask::changeConfig(bool next)
         config.position = currentValue;
     }
 
-    snprintf(buf_, sizeof(buf_), "Changing config to %d -- %s", current_config_, config.text);
+    snprintf(buf_, sizeof(buf_), "Changing config to %d -- %s -- %d", current_config_, config.text, config.position);
     log(buf_);
     applyConfig(config, false);
 }
@@ -253,10 +254,43 @@ void InterfaceTask::updateHardware()
 #if SK_ALS
     const float LUX_ALPHA = 0.005;
     static float lux_avg;
-    float lux = veml.readLux();
-    lux_avg = lux * LUX_ALPHA + lux_avg * (1 - LUX_ALPHA);
+    float lux = 0;
+
+    if (!als_initialized_)
+    {
+        if (millis() >= als_retry_time_)
+        {
+            if (veml.begin())
+            {
+                veml.setGain(VEML7700_GAIN_2);
+                veml.setIntegrationTime(VEML7700_IT_400MS);
+                als_initialized_ = true;
+                log("ALS sensor initialized successfully on retry");
+            }
+            else
+            {
+                log("ALS sensor retry failed");
+                als_retry_time_ = millis() + ALS_RETRY_INTERVAL_MS;
+            }
+        }
+    }
+    else
+    {
+        try
+        {
+            lux = veml.readLux();
+            lux_avg = lux * LUX_ALPHA + lux_avg * (1 - LUX_ALPHA);
+        }
+        catch (...)
+        {
+            log("ALS sensor read failed - reinitializing");
+            als_initialized_ = false;
+            als_retry_time_ = millis() + ALS_RETRY_INTERVAL_MS;
+        }
+    }
+
     static uint32_t last_als;
-    if (millis() - last_als > 1000 && strain_calibration_step_ == 0)
+    if (millis() - last_als > 1000 && strain_calibration_step_ == 0 && als_initialized_)
     {
         snprintf(buf_, sizeof(buf_), "millilux: %.2f", lux * 1000);
         log(buf_);
@@ -334,7 +368,10 @@ void InterfaceTask::updateHardware()
     uint16_t brightness = UINT16_MAX;
 // TODO: brightness scale factor should be configurable (depends on reflectivity of surface)
 #if SK_ALS
-    brightness = (uint16_t)CLAMP(lux_avg * 13000, (float)1280, (float)UINT16_MAX);
+    if (als_initialized_)
+    {
+        brightness = (uint16_t)CLAMP(lux_avg * 13000, (float)1280, (float)UINT16_MAX);
+    }
 #endif
 
 #if SK_DISPLAY
