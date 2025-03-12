@@ -13,7 +13,7 @@
 #define MQTT_CONFIG_TOPIC HOSTNAME "/config"
 #define MQTT_COMMAND_TOPIC HOSTNAME "/command"
 
-MQTTTask::MQTTTask(const uint8_t task_core, MotorTask &motor_task, Logger &logger) : Task("MQTT", 4096, 1, task_core),
+MQTTTask::MQTTTask(const uint8_t task_core, MotorTask &motor_task, Logger &logger) : Task("MQTT", 4096, 1, task_core), // was 0
                                                                                      motor_task_(motor_task),
                                                                                      logger_(logger),
                                                                                      wifi_client_(),
@@ -70,111 +70,111 @@ void MQTTTask::mqttCallback(char *topic, byte *payload, unsigned int length)
 
 void MQTTTask::handleConfigMessage(byte *payload, unsigned int length)
 {
-    if (!InterfaceTask::configs_loaded_)
+
+    // First try with heap allocation
+    JsonDocument *doc = nullptr;
+    try
     {
-        // First try with heap allocation
-        DynamicJsonDocument *doc = nullptr;
-        try
+        doc = new JsonDocument();
+        if (!doc)
         {
-            doc = new DynamicJsonDocument(4096);
-            if (!doc)
-            {
-                logger_.log("Failed to allocate JSON document");
-                return;
-            }
-
-            DeserializationError error = deserializeJson(*doc, payload, length);
-            if (error)
-            {
-                logger_.log("Failed to parse config JSON");
-                delete doc;
-                return;
-            }
-
-            if (!doc->is<JsonArray>())
-            {
-                logger_.log("Config must be an array");
-                delete doc;
-                return;
-            }
-
-            JsonArray array = doc->as<JsonArray>();
-            size_t i = 0;
-
-            // First validate all entries before modifying configs
-            bool valid = true;
-            for (JsonObject config : array)
-            {
-                if (!config.containsKey("position") ||
-                    !config.containsKey("min_position") ||
-                    !config.containsKey("max_position"))
-                {
-                    valid = false;
-                    break;
-                }
-            }
-
-            if (!valid)
-            {
-                logger_.log("Invalid config format");
-                delete doc;
-                return;
-            }
-
-            // Now safe to modify configs
-            for (JsonObject config : array)
-            {
-                if (i >= InterfaceTask::MAX_CONFIGS)
-                    break;
-
-                PB_SmartKnobConfig &cfg = InterfaceTask::configs_[i];
-                memset(&cfg, 0, sizeof(PB_SmartKnobConfig)); // Clear config first
-
-                cfg.position = config["position"] | 0;
-                cfg.min_position = config["min_position"] | 0;
-                cfg.max_position = config["max_position"] | -1;
-                cfg.position_width_radians = config["width_radians"] | (10 * PI / 180);
-                cfg.detent_strength_unit = config["detent_strength"] | 0;
-                cfg.endstop_strength_unit = config["endstop_strength"] | 1;
-                cfg.snap_point = config["snap_point"] | 1.1;
-
-                JsonArray positions = config["detent_positions"].as<JsonArray>();
-                cfg.detent_positions_count = positions.size();
-                for (size_t j = 0; j < positions.size(); j++) {
-                    cfg.detent_positions[j] = positions[j];
-                }
-
-                cfg.snap_point_bias = config["snap_point_bias"] | 0;
-
-                const char *text = config["text"] | "Unnamed";
-                strncpy(cfg.text, text, sizeof(cfg.text) - 1);
-                cfg.text[sizeof(cfg.text) - 1] = '\0';
-
-                cfg.led_hue = config["led_hue"] | 200;
-
-                const char *entity_id = config["entity_id"] | "";
-                strncpy(cfg.entity_id, entity_id, sizeof(cfg.entity_id) - 1);
-                cfg.entity_id[sizeof(cfg.entity_id) - 1] = '\0';
-
-                i++;
-            }
-
-            InterfaceTask::num_configs_ = i > 0 ? i : 1;
-            InterfaceTask::configs_loaded_ = true;
-
-            char buf[64];
-            snprintf(buf, sizeof(buf), "Loaded %u configs from MQTT", i);
-            logger_.log(buf);
-
-            delete doc;
-        }
-        catch (...)
-        {
-            logger_.log("Exception during config parsing");
-            if (doc)
-                delete doc;
+            logger_.log("Failed to allocate JSON document");
             return;
         }
+
+        DeserializationError error = deserializeJson(*doc, payload, length);
+        if (error)
+        {
+            logger_.log("Failed to parse config JSON");
+            delete doc;
+            return;
+        }
+
+        if (!doc->is<JsonArray>())
+        {
+            logger_.log("Config must be an array");
+            delete doc;
+            return;
+        }
+
+        JsonArray array = doc->as<JsonArray>();
+        size_t i = 0;
+
+        // First validate all entries before modifying configs
+        bool valid = true;
+        for (JsonObject config : array)
+        {
+            if (!config["position"].is<int>() ||
+                !config["min_position"].is<int>() ||
+                !config["max_position"].is<int>())
+            {
+                valid = false;
+                break;
+            }
+        }
+
+        if (!valid)
+        {
+            logger_.log("Invalid config format");
+            delete doc;
+            return;
+        }
+
+        // Now safe to modify configs
+        for (JsonObject config : array)
+        {
+            if (i >= InterfaceTask::MAX_CONFIGS)
+                break;
+
+            PB_SmartKnobConfig &cfg = InterfaceTask::configs_[i];
+            memset(&cfg, 0, sizeof(PB_SmartKnobConfig)); // Clear config first
+
+            cfg.position = config["position"] | 0;
+            cfg.min_position = config["min_position"] | 0;
+            cfg.max_position = config["max_position"] | -1;
+            cfg.position_width_radians = config["width_radians"] | (10 * PI / 180);
+            cfg.detent_strength_unit = config["detent_strength"] | 0;
+            cfg.endstop_strength_unit = config["endstop_strength"] | 1;
+            cfg.snap_point = config["snap_point"] | 1.1;
+
+            JsonArray positions = config["detent_positions"].as<JsonArray>();
+            cfg.detent_positions_count = positions.size();
+            for (size_t j = 0; j < positions.size(); j++)
+            {
+                cfg.detent_positions[j] = positions[j];
+            }
+
+            cfg.snap_point_bias = config["snap_point_bias"] | 0;
+
+            const char *text = config["text"] | "Unnamed";
+            strncpy(cfg.text, text, sizeof(cfg.text) - 1);
+            cfg.text[sizeof(cfg.text) - 1] = '\0';
+
+            cfg.led_hue = config["led_hue"] | 200;
+            cfg.hue = config["hue"] | false;
+
+            const char *entity_id = config["entity_id"] | "";
+            strncpy(cfg.entity_id, entity_id, sizeof(cfg.entity_id) - 1);
+            cfg.entity_id[sizeof(cfg.entity_id) - 1] = '\0';
+
+            i++;
+        }
+
+        InterfaceTask::num_configs_ = i > 0 ? i : 1;
+        InterfaceTask::configs_loaded_ = true;
+
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Loaded %u configs from MQTT", i);
+        logger_.log(buf);
+
+        delete doc;
+    }
+    catch (...)
+    {
+        logger_.log("Exception during config parsing");
+        if (doc)
+            delete doc;
+        return;
     }
 }
 
@@ -306,7 +306,7 @@ void MQTTTask::run()
     PB_SmartKnobState state;
     while (1)
     {
-        if(WiFi.status() != WL_CONNECTED)
+        if (WiFi.status() != WL_CONNECTED)
         {
             ESP.restart();
         }
@@ -322,7 +322,7 @@ void MQTTTask::run()
         if (xQueueReceive(knob_state_queue_, &state, 0) == pdTRUE)
         {
             // Only publish if values changed and 50ms have passed
-            if ((now - mqtt_last_publish_time_ >= 200) &&
+            if ((now - mqtt_last_publish_time_ >= HTTP_AND_MQTT_SENDINTERVAL) &&
                 (state.current_position != last_published_state_.current_position ||
                  state.config.min_position != last_published_state_.config.min_position ||
                  state.config.max_position != last_published_state_.config.max_position))

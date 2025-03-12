@@ -37,6 +37,7 @@ class DisplayTask : public Task<DisplayTask> {
         uint16_t brightness_;
         Logger* logger_;
         void log(const char* msg);
+        uint16_t hueToColor(TFT_eSprite &spr_,int hue);
 };
 
 #else

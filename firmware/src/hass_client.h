@@ -19,8 +19,8 @@ class HassClient : public Task<HassClient>
 public:
     HassClient(const uint8_t task_core);             // Konstruktor ohne InterfaceTask
     void setInterfaceTask(InterfaceTask *interface); // Neue Methode
-    int getStateValue(const char *entityId, int maxValue);
-    void setStateValue(const char *entityId, int value, int maxValue);
+    int getStateValue(const char *entityId, int maxValue ,bool hue = false);
+    void setStateValue(const char *entityId, int value, int maxValue, bool hue = false);
     QueueHandle_t getKnobStateQueue();
 
 protected:

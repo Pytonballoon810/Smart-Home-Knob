@@ -57,13 +57,12 @@ void setup()
   hass_client.begin();
 
   // Free up the Arduino loop task
-  //vTaskDelete(NULL);
+  vTaskDelete(NULL);
 }
 
 void loop()
 {
   char buf[50];
-  static uint32_t last_stack_debug;
   interface_task.log("Stack high water:");
   snprintf(buf, sizeof(buf), "  main: %d", uxTaskGetStackHighWaterMark(NULL));
   interface_task.log(buf);

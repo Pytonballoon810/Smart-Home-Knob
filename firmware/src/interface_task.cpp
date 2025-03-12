@@ -237,7 +237,7 @@ void InterfaceTask::changeConfig(bool next)
     config.position = 0;
     if (strlen(config.entity_id) > 0)
     {
-        int currentValue = hass_client_.getStateValue(config.entity_id, config.max_position);
+        int currentValue = hass_client_.getStateValue(config.entity_id, config.max_position, config.hue);
         config.position = currentValue;
     }
 
@@ -379,9 +379,22 @@ void InterfaceTask::updateHardware()
 #endif
 
 #if SK_LEDS
+    uint8_t mapped_hue;
+    if (latest_config_.hue)
+    {
+        // Scale from 0-360 to 0-255 range
+        mapped_hue = (uint8_t)((latest_state_.current_position * 255L) / 360);
+    }
+    else
+    {
+        mapped_hue = (uint8_t)((latest_config_.led_hue * 255L) / 360);
+    }
     for (uint8_t i = 0; i < NUM_LEDS; i++)
     {
-        leds[i].setHSV(latest_config_.led_hue, 255 - 180 * CLAMP(press_value_unit, (float)0, (float)1) - 75 * pressed, brightness >> 8);
+
+        leds[i].setHSV(mapped_hue,
+                       255 - 180 * CLAMP(press_value_unit, (float)0, (float)1) - 75 * pressed,
+                       brightness >> 8);
 
         // Gamma adjustment
         leds[i].r = dim8_video(leds[i].r);

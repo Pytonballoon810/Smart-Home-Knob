@@ -5,7 +5,7 @@
 WiFiClient HassClient::client;
 
 HassClient::HassClient(const uint8_t task_core)
-    : Task("HassClient", 4096, 0, task_core)
+    : Task("HassClient", 4096, 1, task_core) // was 0
 {
     knob_state_queue_ = xQueueCreate(1, sizeof(PB_SmartKnobState));
     assert(knob_state_queue_ != NULL);
@@ -28,10 +28,11 @@ bool HassClient::isWiFiReady()
     return true;
 }
 
-int HassClient::getStateValue(const char *entityId, int maxValue)
+int HassClient::getStateValue(const char *entityId, int maxValue, bool hue)
 {
     if (!isWiFiReady())
     {
+        log("Error: WiFi not ready!");
         return 0;
     }
 
@@ -40,6 +41,7 @@ int HassClient::getStateValue(const char *entityId, int maxValue)
 
     http.begin(client, url);
     http.addHeader("Authorization", "Bearer " + String(HASS_TOKEN));
+    http.setTimeout(TIMEOUT);
 
     int value = 0;
     int httpCode = http.GET();
@@ -63,6 +65,10 @@ int HassClient::getStateValue(const char *entityId, int maxValue)
         JsonDocument filter;
         filter["state"] = true;
         filter["attributes"]["brightness"] = true;
+        if (hue)
+        {
+            filter["attributes"]["hs_color"] = true;
+        }
 
         JsonDocument doc;
         DeserializationError error = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
@@ -72,7 +78,15 @@ int HassClient::getStateValue(const char *entityId, int maxValue)
             const char *state = doc["state"];
             if (state != nullptr)
             {
-                if (maxValue == 1)
+                if (hue && strcmp(state, "on") == 0)
+                {
+                    JsonVariant hsColor = doc["attributes"]["hs_color"];
+                    if (hsColor.is<JsonArray>())
+                    {
+                        value = round(hsColor[0].as<float>());
+                    }
+                }
+                else if (maxValue == 1)
                 {
                     value = (strcmp(state, "on") == 0) ? 1 : 0;
                 }
@@ -111,10 +125,11 @@ int HassClient::getStateValue(const char *entityId, int maxValue)
     return value;
 }
 
-void HassClient::setStateValue(const char *entityId, int value, int maxValue)
+void HassClient::setStateValue(const char *entityId, int value, int maxValue, bool hue)
 {
     if (!isWiFiReady())
     {
+        log("Error: WiFi not ready!");
         return;
     }
 
@@ -133,11 +148,18 @@ void HassClient::setStateValue(const char *entityId, int value, int maxValue)
     http.begin(client, url);
     http.addHeader("Authorization", "Bearer " + String(HASS_TOKEN));
     http.addHeader("Content-Type", "application/json");
+    http.setTimeout(TIMEOUT);
 
-    JsonDocument doc; // Changed from StaticJsonDocument
+    JsonDocument doc;
     doc["entity_id"] = entityId;
 
-    if (value > 0 && maxValue > 1)
+    if (hue)
+    {
+        JsonArray color = doc["hs_color"].to<JsonArray>();
+        color.add(value);
+        color.add(100);
+    }
+    else if (value > 0 && maxValue > 1)
     {
         doc["brightness"] = map(value, 0, maxValue, 0, 255);
     }
@@ -146,7 +168,12 @@ void HassClient::setStateValue(const char *entityId, int value, int maxValue)
     serializeJson(doc, requestBody);
 
     int httpCode = http.POST(requestBody);
-    if (httpCode != HTTP_CODE_OK)
+
+    if (httpCode == HTTP_CODE_OK)
+    {
+        log("State update successful");
+    }
+    else
     {
         char buf[64];
         snprintf(buf, sizeof(buf), "State update failed with code: %d", httpCode);
@@ -166,13 +193,13 @@ void HassClient::run()
         {
 
             // Only publish if values changed and 50ms have passed
-            if ((now - last_publish_time_ >= 200) &&
+            if ((now - last_publish_time_ >= HTTP_AND_MQTT_SENDINTERVAL) &&
                 (state.current_position != last_published_state_.current_position ||
                  state.config.min_position != last_published_state_.config.min_position ||
                  state.config.max_position != last_published_state_.config.max_position))
             {
 
-                setStateValue(state.config.entity_id, state.current_position, state.config.max_position);
+                setStateValue(state.config.entity_id, state.current_position, state.config.max_position, state.config.hue);
                 // Store the published state and time
                 last_published_state_ = state;
                 last_publish_time_ = now;

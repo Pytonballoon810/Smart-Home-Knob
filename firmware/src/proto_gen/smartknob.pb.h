@@ -117,6 +117,9 @@ typedef struct _PB_SmartKnobConfig {
  Hue (0-255) for all 8 ring LEDs, if supported. Note: this will likely be replaced
  with more configurability in a future protocol version. */
     int16_t led_hue;
+   /* *
+      this interpretes the value as a hue value for Homeasistant. */
+      bool hue;
 } PB_SmartKnobConfig;
 
 typedef struct _PB_SmartKnobState {
