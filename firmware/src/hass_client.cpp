@@ -39,87 +39,95 @@ int HassClient::getStateValue(const char *entityId, int maxValue, bool hue)
     HTTPClient http;
     String url = String(HASS_URL) + "/api/states/" + entityId;
 
-    http.begin(client, url);
+    if (!http.begin(client, url))
+    {
+        log("Failed to begin HTTP connection");
+        return 0;
+    }
+
     http.addHeader("Authorization", "Bearer " + String(HASS_TOKEN));
     http.setTimeout(TIMEOUT);
 
     int value = 0;
     int httpCode = http.GET();
-    if (httpCode == HTTP_CODE_OK)
-    {
-        if (!client.connected())
-        {
-            log("Client connection lost");
-            http.end();
-            return 0;
-        }
 
-        WiFiClient *stream = http.getStreamPtr();
-        if (!stream)
-        {
-            log("Failed to get stream pointer");
-            http.end();
-            return 0;
-        }
-
-        JsonDocument filter;
-        filter["state"] = true;
-        filter["attributes"]["brightness"] = true;
-        if (hue)
-        {
-            filter["attributes"]["hs_color"] = true;
-        }
-
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
-
-        if (!error)
-        {
-            const char *state = doc["state"];
-            if (state != nullptr)
-            {
-                if (hue && strcmp(state, "on") == 0)
-                {
-                    JsonVariant hsColor = doc["attributes"]["hs_color"];
-                    if (hsColor.is<JsonArray>())
-                    {
-                        value = round(hsColor[0].as<float>());
-                    }
-                }
-                else if (maxValue == 1)
-                {
-                    value = (strcmp(state, "on") == 0) ? 1 : 0;
-                }
-                else if (strcmp(state, "on") == 0)
-                {
-                    JsonVariant brightness = doc["attributes"]["brightness"];
-                    if (brightness.is<int>())
-                    {
-                        value = map(brightness.as<int>(), 0, 255, 0, maxValue);
-                    }
-                    else
-                    {
-                        value = maxValue;
-                    }
-                }
-                else if (strcmp(state, "off") == 0)
-                {
-                    value = 0;
-                }
-            }
-            log("Successfully got state from Home Assistant");
-        }
-        else
-        {
-            log("Failed to parse Home Assistant response");
-        }
-    }
-    else
+    if (httpCode != HTTP_CODE_OK)
     {
         char buf[64];
         snprintf(buf, sizeof(buf), "HTTP request failed with code: %d", httpCode);
         log(buf);
+        http.end();
+        return 0;
     }
+
+    if (!client.connected())
+    {
+        log("Client connection lost during read");
+        http.end();
+        return 0;
+    }
+
+    WiFiClient *stream = http.getStreamPtr();
+    if (!stream || !stream->available())
+    {
+        log("No data available in stream");
+        http.end();
+        return 0;
+    }
+
+    JsonDocument filter;
+    filter["state"] = true;
+    filter["attributes"]["brightness"] = true;
+    if (hue)
+    {
+        filter["attributes"]["hs_color"] = true;
+    }
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
+
+    if (error)
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "JSON parse error: %s", error.c_str());
+        log(buf);
+        http.end();
+        return 0;
+    }
+
+    const char *state = doc["state"];
+    if (state != nullptr)
+    {
+        if (hue && strcmp(state, "on") == 0)
+        {
+            JsonVariant hsColor = doc["attributes"]["hs_color"];
+            if (hsColor.is<JsonArray>())
+            {
+                value = round(hsColor[0].as<float>());
+            }
+        }
+        else if (maxValue == 1)
+        {
+            value = (strcmp(state, "on") == 0) ? 1 : 0;
+        }
+        else if (strcmp(state, "on") == 0)
+        {
+            JsonVariant brightness = doc["attributes"]["brightness"];
+            if (brightness.is<int>())
+            {
+                value = map(brightness.as<int>(), 0, 255, 0, maxValue);
+            }
+            else
+            {
+                value = maxValue;
+            }
+        }
+        else if (strcmp(state, "off") == 0)
+        {
+            value = 0;
+        }
+    }
+    log("Successfully got state from Home Assistant");
 
     http.end();
     return value;
