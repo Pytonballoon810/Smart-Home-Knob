@@ -144,7 +144,7 @@ void HassClient::setStateValue(const char *entityId, int value, int maxValue, bo
     HTTPClient http;
     String url = String(HASS_URL) + "/api/services/homeassistant/turn_";
 
-    if (value == 0)
+    if (value == 0 && !hue)
     {
         url += "off";
     }
@@ -165,7 +165,7 @@ void HassClient::setStateValue(const char *entityId, int value, int maxValue, bo
     {
         JsonArray color = doc["hs_color"].to<JsonArray>();
         color.add(value);
-        color.add(100);
+        color.add(value == 0 ? 0 : 100);
     }
     else if (value > 0 && maxValue > 1)
     {
