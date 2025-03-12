@@ -25,7 +25,6 @@ static const float IDLE_CORRECTION_RATE_ALPHA = 0.0005;
 static const float MOMENTUM_DECAY_RATE = 0.998;  // Almost no decay
 static const float MOMENTUM_MIN_VELOCITY = 0.1; // Very low minimum velocity
 static const float VELOCITY_EWMA_ALPHA = 0.1;
-static const float MOMENTUM_BOOST = 8.0; // Higher boost for actual motor movement
 
 MotorTask::MotorTask(const uint8_t task_core, Configuration &configuration) : Task("Motor", 4000, 1, task_core), configuration_(configuration)
 {
@@ -295,11 +294,11 @@ void MotorTask::run()
             smoothed_velocity = motor.shaft_velocity * VELOCITY_EWMA_ALPHA + smoothed_velocity * (1 - VELOCITY_EWMA_ALPHA);
 
             // Check if we should enter momentum mode
-            if (fabsf(smoothed_velocity) > 10.0 && !in_momentum_mode) // Lower threshold
+            if (fabsf(smoothed_velocity) > 15.0 && !in_momentum_mode) // Lower threshold
             {
                 log("Entering momentum mode");
                 in_momentum_mode = true;
-                momentum_velocity = smoothed_velocity * 0.05;
+                momentum_velocity = smoothed_velocity * 0.04;
             }
 
             // Handle momentum mode
